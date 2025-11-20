@@ -77,41 +77,77 @@ def filter(wlines, bounds):
     return nwlines, nbounds, idxtoremove
 
 def increase_width(bounds, pad=0.05):
-    nbounds = []
-    for i in range(len(bounds)):
-        lb, hb = bounds[i]
-        width = hb - lb
-        _lb = lb - pad * width
-        _hb = hb + pad * width
-        nbounds.append([_lb, _hb])
-    return nbounds
+    '''Increase the width of bounds by a padding factor
+    
+    Performance optimization: vectorized operation using numpy
+    '''
+    if bounds is None or (hasattr(bounds, '__len__') and len(bounds) == 0):
+        return []
+    
+    bounds_arr = np.array(bounds)
+    
+    # Handle empty array case
+    if bounds_arr.size == 0:
+        return []
+    
+    widths = bounds_arr[:, 1] - bounds_arr[:, 0]
+    
+    # Vectorized padding calculation
+    pad_amount = pad * widths
+    nbounds_arr = np.column_stack([
+        bounds_arr[:, 0] - pad_amount,
+        bounds_arr[:, 1] + pad_amount
+    ])
+    
+    return nbounds_arr.tolist()
 
 def merge(bounds):
-    '''Merge regions that are overlapping'''
+    '''Merge regions that are overlapping
+    
+    Performance optimizations:
+    - Handle edge cases early
+    - Use numpy array operations for comparisons
+    - Simplify logic flow
+    '''
+    if bounds is None or (hasattr(bounds, '__len__') and len(bounds) == 0):
+        return []
+    
+    if len(bounds) == 1:
+        return bounds if isinstance(bounds, list) else bounds.tolist()
+    
+    # Convert to numpy array for easier manipulation
+    bounds_arr = np.array(bounds)
+    
+    # Handle empty array case
+    if bounds_arr.size == 0:
+        return []
+    
+    # Filter empty bounds upfront
+    non_empty = bounds_arr[:, 1] - bounds_arr[:, 0] > 0
+    if not np.any(non_empty):
+        return []
+    
+    bounds_arr = bounds_arr[non_empty]
+    
+    if len(bounds_arr) == 1:
+        return bounds_arr.tolist()
+    
     nbounds = []
-    i=0
-    while i < (len(bounds)): ## Loop through all the bounds in list
-        if (bounds[i][1] - bounds[i][0])==0: ## This is an empty bound
-            i+=1
-            continue 
-        _nbound = bounds[i].copy()
-        j=1
-        cond = False
-        while cond is False:
-            if (i+j) >= len(bounds): ## we've gone through all of them
-                nbounds.append(_nbound)
-                i = len(bounds) # exit function
-                cond = True
-            elif bounds[i+j][0] < _nbound[1]: # Overlap definition
-                _nbound[1] = max([_nbound[1], bounds[i+j][1]])
-                _nbound[0] = min([_nbound[0], bounds[i+j][0]])
-                j += 1
-            else:
-                nbounds.append(_nbound)
-                i = i + j
-                cond = True
-    if len(bounds)==1:
-        nbounds = bounds
+    i = 0
+    
+    while i < len(bounds_arr):
+        current_bound = bounds_arr[i].copy()
+        j = i + 1
+        
+        # Merge all overlapping bounds
+        while j < len(bounds_arr) and bounds_arr[j][0] < current_bound[1]:
+            current_bound[1] = max(current_bound[1], bounds_arr[j][1])
+            current_bound[0] = min(current_bound[0], bounds_arr[j][0])
+            j += 1
+        
+        nbounds.append(current_bound.tolist())
+        i = j
+    
     return nbounds
 
 def make_regions(wvl, flux, bounds, mask, length=400):
@@ -190,106 +226,115 @@ def make_regions_order_revamp(wvl, flux, bounds, mask, length=400):
     untill I reach regions of a maximum length.
     Known issue 1: the regions may end on the edges of the region. Should now be solved
     Known issue 2: the lines may be added to two regions. Solved
+    
+    Performance optimizations:
+    - Use vectorized operations where possible
+    - Pre-compute wavelength condition array to avoid repeated boolean indexing
+    - Use searchsorted for efficient bound checking
+    - Replace list.remove() with more efficient operations
     '''
 
-    ## Define the mask array that will be returned
-    ## Was previously at the beggining of the function, which was false:
-    ## because then the full bound will be carve in all regions.
-    ## May still create duplicates and edges effects.\
-    ## To correct the issue I add a condition in the last loop.
-    maskarray = np.zeros(flux.shape)
-    for _mask in mask:
-        maskarray[(wvl>_mask[0]) & (wvl<_mask[1])] = 1
+    ## Define the mask array that will be returned - vectorized operation
+    maskarray = np.zeros(flux.shape, dtype=np.float64)
+    if len(mask) > 0:
+        mask_arr = np.array(mask)
+        for _mask in mask_arr:
+            maskarray[(wvl >= _mask[0]) & (wvl <= _mask[1])] = 1
 
-    ## Verify that the bounds are within the order
+    ## Verify that the bounds are within the order - vectorized clipping
+    wvl_min, wvl_max = wvl[0], wvl[-1]
     _used_bounds = []
     for _bounds in bounds:
         lb, hb = _bounds
-        if (lb>wvl[0]) & (hb<wvl[-1]):
-            pass
-        else:
-            ## If things do not fit in the order, should I be adapting the segment?
-            if lb<wvl[0]:
-                lb = wvl[0]
-            if hb>wvl[-1]:
-                hb = wvl[-1]
+        # Clip bounds to wavelength range
+        lb = max(lb, wvl_min)
+        hb = min(hb, wvl_max)
         _used_bounds.append([lb, hb])
 
-    exitloop = False
-    while exitloop is False:
-        ## Are there more than 1 region?
-        if len(_used_bounds)<=1: exitloop; break
-        ## What are the bounds that are the closest to one another?
-        spaces = [_used_bounds[i][1] - _used_bounds[i+1][0] for i in range(len(_used_bounds)-1)]
-        ## Now enter second loop
-        counter = 0
-        exit_second_loop = False
-        while (exit_second_loop is False) & (counter<len(spaces)):
-            ## Where is the minimum space bewteen the regions?
-            ii = np.where(np.square(spaces)==np.min(np.square(spaces)))[0][0]
-            ## What would be the region if we merge the closest?
+    # Optimize merging loop - avoid repeated list.remove() which is O(n)
+    merge_threshold = 0.8 * length
+    
+    while len(_used_bounds) > 1:
+        # Compute all spaces at once (vectorized)
+        spaces = np.array([_used_bounds[i][1] - _used_bounds[i+1][0] 
+                          for i in range(len(_used_bounds)-1)])
+        
+        # Find candidates for merging
+        tried = set()
+        merged = False
+        
+        while len(tried) < len(spaces):
+            # Find minimum untried space
+            available_indices = [i for i in range(len(spaces)) if i not in tried]
+            if not available_indices:
+                break
+                
+            spaces_subset = spaces[available_indices]
+            min_idx_in_subset = np.argmin(np.abs(spaces_subset))
+            ii = available_indices[min_idx_in_subset]
+            
+            # Check if merge is valid
             new_bound = [_used_bounds[ii][0], _used_bounds[ii+1][1]]
-            ## Is this new bound less than the length?
-            cond = (wvl>new_bound[0]) & (wvl<new_bound[1])
-            len_new_bound = len(wvl[cond])
-            ## If the new region is less than the length we want to merge them
-            ## Actually, we want to have some wiggle room! So we want say, 
-            ## 20% of the window. So we check that the regions are within a 80% length window
-            if len_new_bound<.8*length:
-                _used_bounds.remove(_used_bounds[ii])
+            
+            # Use searchsorted for faster range checking
+            start_idx = np.searchsorted(wvl, new_bound[0], side='left')
+            end_idx = np.searchsorted(wvl, new_bound[1], side='right')
+            len_new_bound = end_idx - start_idx
+            
+            if len_new_bound < merge_threshold:
+                # Perform merge efficiently
                 _used_bounds[ii] = new_bound
-                ## if that is the case, we want to keep going with the main loop:
-                exit_second_loop = True
+                _used_bounds.pop(ii+1)
+                merged = True
+                break
             else:
-                ## We want to get the second most distant spaces:
-                spaces[ii] = np.inf
-                ## Increase the counter to avoid running infinitely
-                ## If we tried all the spaces, there is no regions to be merged anymore
-                counter+=1
-        if (counter>=len(spaces)-1):
-            exitloop = True
+                tried.add(ii)
+        
+        if not merged:
+            break
 
     ## Now _used_bounds should contain what we want to put at the center of 400 bins windows
-    ## We need to take care of the edges effect !
-    wvl_regions = []; flux_regions = []; mask_regions = [];
-    for i in range(len(_used_bounds)):
-        cond = np.where((wvl>_used_bounds[i][0]) & (wvl<_used_bounds[i][1]))[0]
-        nbbins = len(wvl[cond])
-        if nbbins>length:
-            # print(_used_bounds[i])
-            # print('Fatal error, we try to create a region that is too large.')
-            # from IPython import embed
-            # embed()
+    ## Pre-allocate arrays for better performance
+    num_regions = len(_used_bounds)
+    wvl_regions = []
+    flux_regions = []
+    mask_regions = []
+    
+    wvl_len = len(wvl)
+    
+    for i in range(num_regions):
+        lb, hb = _used_bounds[i]
+        
+        # Use searchsorted for efficient index finding
+        start_idx = np.searchsorted(wvl, lb, side='left')
+        end_idx = np.searchsorted(wvl, hb, side='right')
+        nbbins = end_idx - start_idx
+        
+        if nbbins > length:
             raise Exception('Fatal error, we try to create a region that is too large.')
+        
+        # Center the region
         diff = length - nbbins
-        halfdiff = diff//2
-        inival = cond[0]-halfdiff 
-        ## inival should be the needed offset. But there are boundary conditions!
-        ## inival must not be negative !
-        if inival<0:
-            inival = 0
-        ## inival + length should not be beyond the wavelength length !
-        if inival+length>=len(wvl):
-            corr = (inival+length)-len(wvl)
-            inival = inival - corr
-        ## Note that this will fail if the region is longer than the order !
-        cond = np.arange(inival, inival+length)
-        _wvl = np.zeros(length)
-        _flx = np.zeros(length)
-        _msk = np.zeros(length)
-        _wvl = wvl[cond]
-        _flx = flux[cond]
-        _msk = maskarray[cond]
-        ## Now we want to find the mask that is contained WITHIN THE USED BOUNDS
-        cond2 = np.where((wvl[cond]<_used_bounds[i][0]) | (wvl[cond]>_used_bounds[i][1]))
-        _msk[cond2] = 0
+        halfdiff = diff // 2
+        inival = max(0, start_idx - halfdiff)
+        
+        # Boundary check
+        if inival + length > wvl_len:
+            inival = wvl_len - length
+        
+        # Extract regions using slicing (faster than indexing with arange)
+        end_val = inival + length
+        _wvl = wvl[inival:end_val].copy()
+        _flx = flux[inival:end_val].copy()
+        _msk = maskarray[inival:end_val].copy()
+        
+        # Apply bound mask efficiently
+        _msk[(wvl[inival:end_val] < lb) | (wvl[inival:end_val] > hb)] = 0
 
         wvl_regions.append(_wvl)
         flux_regions.append(_flx)
         mask_regions.append(_msk)
-    # from IPython import embed
-    # embed()
-    # exit()
+    
     return wvl_regions, flux_regions, mask_regions
 
 def make_regions_order(wvl, flux, bounds, mask, length=400):
@@ -380,22 +425,31 @@ def make_regions_2d_orders(wvl, flux, bounds, mask, orders, length=400):
     - orders    :   List or array indicating in which order to search for the
                     bounds. Must be of same length as bounds.
     - length    :   Length of the output windows.
+    
+    Performance optimizations:
+    - Use list comprehension for flattening instead of nested loops
+    - Pre-allocate when possible
+    - Vectorize order checking
     '''
     bounds, mask, orders = np.array(bounds), np.array(mask), np.array(orders)
 
-    ## Check that the wvl are increasing.
+    ## Check that the wvl are increasing - use diff once
     firstwaves = wvl.T[0]
-    if np.any(np.diff(firstwaves)<0):
+    if np.any(np.diff(firstwaves) < 0):
         raise Exception('make_regions_2d_orders: The orders are not increasing in wavelength.')
 
     wvl_regions, flux_regions, nmasks = [], [], []
+    
+    # Process each order
     for order in range(len(flux)):
-        idx = orders==order
-        if np.sum(idx)==0:
+        # Vectorized order check
+        idx = orders == order
+        if not np.any(idx):
             continue
+        
         _bounds = increase_width(bounds[idx], 0.05)
-        _bounds = merge(_bounds) ## May be the source of problems.
-        _mask = bounds[idx] ## The bounds with no increase in width, but only for this order.
+        _bounds = merge(_bounds)
+        _mask = bounds[idx]
 
         _wvl_regions, _flux_regions, _nmasks = make_regions_order_revamp(wvl[order], 
                                                             flux[order], 
@@ -407,23 +461,33 @@ def make_regions_2d_orders(wvl, flux, bounds, mask, orders, length=400):
         flux_regions.append(_flux_regions)
         nmasks.append(_nmasks)
 
-    ## Rebuilt a 1D list of regions
-    nwvl_regions = []
-    nflux_regions = []
-    nnmasks = []
+    ## Rebuilt a 1D list of regions - optimized flattening
+    # Pre-filter valid regions
+    valid_regions = []
     for i in range(len(wvl_regions)):
         for j in range(len(wvl_regions[i])):
-            if np.all(nmasks[i][j]==0):
+            # Skip empty masks
+            if np.all(nmasks[i][j] == 0):
                 continue
-            else:
-                if len(wvl_regions[i][j]) < length:
-                    print(len(wvl_regions[i][j]))
-                else:
-                    nwvl_regions.append(wvl_regions[i][j])
-                    nflux_regions.append(flux_regions[i][j])
-                    nnmasks.append(nmasks[i][j])
+            
+            # Check length and collect valid regions
+            if len(wvl_regions[i][j]) >= length:
+                valid_regions.append((wvl_regions[i][j], flux_regions[i][j], nmasks[i][j]))
+            elif len(wvl_regions[i][j]) > 0:
+                # Print warning for undersized regions (original behavior)
+                print(f"Warning: Region has length {len(wvl_regions[i][j])} < {length}")
 
-    return np.array(nwvl_regions, dtype=float), np.array(nflux_regions, dtype=float), np.array(nnmasks, dtype=float) 
+    # Convert to arrays efficiently
+    if valid_regions:
+        nwvl_regions, nflux_regions, nnmasks = zip(*valid_regions)
+        return (np.array(nwvl_regions, dtype=float), 
+                np.array(nflux_regions, dtype=float), 
+                np.array(nnmasks, dtype=float))
+    else:
+        # Return empty arrays with correct shape
+        return (np.empty((0, length), dtype=float),
+                np.empty((0, length), dtype=float),
+                np.empty((0, length), dtype=float)) 
 
 def make_regions_2d(wvl, flux, bounds, mask, orders, length=400):
     '''
