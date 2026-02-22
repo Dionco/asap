@@ -4,6 +4,9 @@
 # Ignore temporary files
 *.tmp
 
+*.pyc
+*.nbc
+
 # Ignore node_modules directory
 node_modules/
 
@@ -12,6 +15,6 @@ runs/
 asap_v0.1_example/
 asap.egg-info/
 build/
-new/asap/asap/__pycache__/
+asap/__pycache__/
 scripts/
 testing/

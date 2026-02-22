@@ -65,6 +65,7 @@ from asap.spectral_analysis_pack import fill_nans_wavelength
 from asap.spectral_analysis_pack import fill_nans_wavelength_v2
 from asap.spectral_analysis_pack import fill_nans_wavelength_v3
 from asap.line_selection_tools import find_optimal_order
+import corner
 
 import shutil
 
@@ -193,6 +194,41 @@ def read_res(filename):
               "eveilingfac": eveilingfac,
               }
     return output
+
+
+def read_res_v2(filename):
+    '''New function aimed at replacing the old function.
+    This function reads data from the results.txt file using type and keys.
+    This allows for more flexibility while ensuring self.consistency.
+    Input filename used : as a seperator between type, key and attributes'''
+    supported_types = ['str', 'flt', 'cst', 'int', 'arr']
+    data = {}
+    with open(filename, 'r') as f:
+        for line in f.readlines():
+            if line.strip()[0]=='#': continue ## Comments handling
+            if line.strip()[0]=='': continue ## Empty line handling
+            sl = line.split(':')
+            ## Check file consistency
+            print(len(sl))
+            print(sl)
+            if len(sl)!=3: raise Exception('Error reading file; '
+                                        +'should contain 3 :-seperated columns')
+            _type = sl[0].strip(); _var = sl[1].strip(); _value = sl[2].strip()
+            if _type not in supported_types: 
+                raise Exception('Error reading file; supported types are:'
+                                        +' '.join(supported_types))
+            ## Read for each type:
+            if _type=='str': data[_var] = _value.strip()
+            elif _type=='cst': data[_var] = float(_value) 
+            elif _type=='int': data[_var] = int(_value) 
+            elif _type=='flt':
+                _val, _val_err = _value.split()
+                data[_var] = float(_val) 
+                data[_var+'_err'] = float(_val_err) 
+            elif _type=='arr':
+                _val_arr = _value.split()
+                data[_var] = [float(_val) for i in range(len(_val_arr))] 
+    return data
 
 def readstr(instr):
     '''Small helper function to check that the strings are correctly formatted
@@ -327,6 +363,8 @@ class SpectralAnalysis:
     can be changed using the update functions.'''
 
     def __init__(self, **kargs):
+        self.runTime = 0.
+        self.input_filename = None
         self.message = "Output message to the user\n"
         self.dynesty = False
         self.teffs = np.arange(2700., 4000., 100.); 
@@ -1280,6 +1318,8 @@ class SpectralAnalysis:
         Input:
         - filename      :   [string] absolute path of the file to load.'''
 
+        self.input_filename = filename
+
         ## Try to resolve the filename
         if not os.path.isfile(filename):
             filename = filename.replace('gj', 'gl')
@@ -1958,6 +1998,9 @@ class SpectralAnalysis:
         print('Done grid')
 
         self.cells = build_sphere_grid(self.mu_angles, self.nb_mus)
+        ## SORT the cells -- just in case, but I think they are already sorted
+        idx = np.argsort(self.cells['mu_idx'])
+        self.cells = self.cells[idx]
 
         return nwvls
 
@@ -4574,7 +4617,7 @@ class SpectralAnalysis:
                 mcmcsForLnLike = mcmcs[1:] ## Without magnetic field component
             else:
                 mcmcsForLnLike = mcmcs
-            _  = self.lnlike(mcmcsForLnLike)
+            maxLnLikelihood  = self.lnlike(mcmcsForLnLike)
             minchi2 = np.sum(self._res)
             coeffsnomag = coeffs*0
             coeffsnomag[0] = 1
@@ -4610,6 +4653,7 @@ class SpectralAnalysis:
             resdict['vmac'] = self.vmac; resdict['e_vmac'] = 0.
             resdict['rv'] = self.rv; resdict['e_rv'] = 0.
             minchi2 = np.nan
+            maxLnLikelihood = np.nan
             minchi2exp = np.nan
             meanfield = np.nan
             emeanfield = np.nan
@@ -4661,18 +4705,18 @@ class SpectralAnalysis:
             p = len(mcmcs) ## number of parameters
             new_normFactor = minchi2 * self.normFactor / (nbPointsFitted - p)
             self.save_normFactor(new_normFactor)
-            ## Compute BIC (Bayesian Information Criterion)
-            ## BIC = -2*ln(L_max) + 2*n*ln(N)
-            ## where L_max is the maximum likelihood, n is the number of
-            ## model parameters, and N is the number of data points.
-            max_lnlike = np.max(log_prob_walkers)
-            n_fill = len(self.bs)
-            bic = -2.0 * max_lnlike + 2.0 * n_fill * np.log(nbPointsFitted)
-        else:
-            p = 0
-            max_lnlike = np.nan
-            bic = np.nan
         
+        ## Compute BIC (Bayesian Information Criterion)
+        ## as defined in 2017ARA&A..55..213S
+        ## BIC = -2*ln(L_max) + n*ln(N)
+        ## with L_max the maximum likelihood, n the number of degrees of 
+        ## freedom, and N the number of data points.
+        ## I am here considering that the number of degrees of freedom is the
+        ## number of all fit parameters (Teff+logg+mh...+filling factors) based
+        ## on what the user is computing. This is the length of `mcmcs`
+        nof = len(mcmcs)
+        bic = -2.0 * maxLnLikelihood + 2.0 * nof * np.log(nbPointsFitted)
+
         strcoeffs = [str(coeffs[i]) for i in range(len(coeffs))]
         strecoeffs = [str(ecoeffs[i]) for i in range(len(ecoeffs))]
         resFillTeffsString = [str(resFillTeffs[i]) for i in range(len(resFillTeffs))]
@@ -4686,7 +4730,7 @@ class SpectralAnalysis:
         f.write("chi2 min: {:0.5f}\n".format(minchi2))
         f.write("chi2 min no field: {:0.5f}\n".format(minchi2exp))
         f.write("BIC: {:0.5f}\n".format(bic))
-        f.write("max ln(L): {:0.5f}\n".format(max_lnlike))
+        f.write("max ln(L): {:0.5f}\n".format(maxLnLikelihood))
         f.write("n_params: {}\n".format(p))
         f.write("n_data: {}\n".format(nbPointsFitted))
         f.write("bs: {}\n".format(' '.join([str(b) for b in self.bs])))
@@ -4723,12 +4767,187 @@ class SpectralAnalysis:
         f.write("------: {}\n".format(" "))#.format(self.fitDeriv))
         f.write("Error type: {}\n".format(self.errType))
         f.write("vinstru: {}\n".format(self.vinstru))
-        f.write("BIC: {:0.5f}\n".format(bic))
-        f.write("max ln(L): {:0.5f}\n".format(max_lnlike))
-        f.write("n_params: {}\n".format(p))
-        f.write("n_data: {}\n".format(nbPointsFitted))
-        f.write("bs: {}\n".format(' '.join([str(b) for b in self.bs])))
         f.close()
+
+        ## PIC: Adding a new file with more information, and trying to make it
+        ## easier to read with a by-key formating, instead of reading the file
+        ## with fixed line numbers.
+        ## The name of the keys will be defined should be defined in an 
+        ## attribute so that explanations about the keys can be stored elswhwere
+        ## I choose to add things in the format:
+        ## key val val_err
+        ## to keep the file length limited.
+        ## The goal is to make the reading the file *independent* from the order
+        ## of the lines and from the number of lines.
+        ## We should also be able to easily change the name of the keys
+        resfile_keys = ['sep:#', 'str:datetime', 'cst:run_time', 
+                        'str:star', 'str:input_filename', 
+                        'sep:-',
+                        'flt:teff', 'flt:logg', 'flt:mh', 'flt:afe', 
+                        'flt:vsini', 'flt:vmac', 'str:vmac_mode', 
+                        'flt:guess_rv', 'flt:rv',
+                        'flt:mag_max_lnlike', 
+                        'flt:mag_average',
+                        'arr:mag_components',
+                        'arr:mag_ff',
+                        'arr:mag_ff_err',
+                        'str:veiling_bands',
+                        'arr:veiling',
+                        'arr:veiling_err',
+                        'sep:-',
+                        'cst:lnlike_max', 
+                        'cst:chi2_min', 
+                        'int:nb_points',
+                        'cst:norm_factor',
+                        'cst:bic',
+                        'sep:-',
+                        'str:input_instrument',
+                        'str:input_fitRV',
+                        # 'cst:input_rv',
+                        'str:input_fitRot',
+                        # 'cst:input_vsini',
+                        'str:input_fitMac',
+                        'str:input_vmacMode',
+                        'str:input_fitFields',
+                        'str:input_reNorm',
+                        'str:input_fitVeiling',
+                        'str:input_fitBands',
+                        'str:input_veilingBands',
+                        'arr:input_veilingFac',
+                        'str:input_fitTeff',
+                        'str:input_fitLogg',
+                        'str:input_fitMh',
+                        'str:input_fitAlpha',
+                        'arr:input_teffArray',
+                        'arr:input_loggArray',
+                        'arr:input_mhArray',
+                        'arr:input_alphaArray',
+                        'sep:-',
+                        'int:input_nbWalkers',
+                        'int:input_nbSteps',
+                        'int:input_nbCores',
+                        'str:input_saveBackend',
+                        'sep:-',
+                        'str:input_pathToGrid',
+                        'str:input_pathToData',
+                        'str:input_lineListFile',
+                        'str:input_normFactorFile',
+                        'str:input_adjCont',
+                        'str:input_guessRV',
+                        'str:input_resampleVel',
+                        'str:input_errType',
+                        'sep:#',
+                        ]
+        ## This is a temporary fix, not ideal, and should be changed in the
+        ## future
+        corresponding_keys = {'afe': 'alpha'}
+        for key in resfile_keys:
+            _type, _var = key.split(':')
+            if _var not in resdict.keys(): 
+                if _var in corresponding_keys:
+                    resdict[_var] = resdict[corresponding_keys[_var]]
+                    resdict['e_'+_var] = resdict['e_'+corresponding_keys[_var]]
+                elif _var=='vmac_mode': resdict['vmac_mode']=self.vmacMode
+                elif _var=='guess_rv': 
+                    resdict['guess_rv']=self.guessed_rv
+                    resdict['e_guess_rv']=0.
+                elif _var=='mag_max_lnlike': 
+                    resdict['mag_max_lnlike']=meanfield
+                    resdict['e_mag_max_lnlike']=emeanfield
+                elif _var=='mag_average': 
+                    resdict['mag_average']=avfield
+                    resdict['e_mag_average']=eavfield
+                elif _var=='chi2_min': 
+                    resdict['chi2_min']=minchi2
+                elif _var=='nb_points': resdict['nb_points']=nbPointsFitted
+                elif _var=='norm_factor': resdict['norm_factor']=self.normFactor
+                elif _var=='mag_components': 
+                    resdict['mag_components']=self.bs
+                elif _var=='mag_ff': 
+                    resdict['mag_ff']=coeffs
+                elif _var=='mag_ff_err': 
+                    resdict['mag_ff_err']=ecoeffs
+                elif _var=='veiling': 
+                    resdict['veiling']=resveil
+                elif _var=='veiling_err': 
+                    resdict['veiling_err']=eresveil
+                elif _var=='veiling_bands': 
+                    resdict['veiling_bands']=self.veilingBands
+                    
+        self.floatResultsPrecision = 4
+        RP = self.floatResultsPrecision ## results precision
+        CH = RP+8
+        CK = 20
+
+        ## Now I want to add some metadata to the file.
+        from datetime import datetime
+        resdict['datetime'] = datetime.now().strftime("%Y-%m-%d %Hh%Mm%Ss")
+        resdict['run_time'] = self.runTime
+        resdict['star'] = self.star
+        resdict['lnlike_max'] = maxLnLikelihood
+        resdict['bic'] = bic
+        #
+        resdict['input_filename'] = self.input_filename
+        ## And also some of the user inputs directly
+        resdict['input_instrument'] = self.instrument
+        resdict['input_fitRV'] = self.fitrv
+        # resdict['input_rv'] = self.rv ## value may have been updated
+        resdict['input_fitRot'] = self.fitrot
+        # resdict['input_vsini'] = self.vsini ## Value may have been updated 
+        resdict['input_fitMac'] = self.fitmac
+        # resdict['input_vmac'] = self.vmac ## Value may have been updated 
+        resdict['input_vmacMode'] = self.vmacMode
+        resdict['input_fitFields'] = self.fitFields
+        resdict['input_reNorm'] = self.renorm
+        resdict['input_fitVeiling'] = self.fitVeiling
+        resdict['input_fitBands'] = self.fitBands
+        resdict['input_veilingBands'] = self.veilingBands
+        resdict['input_veilingFac'] = self.veilingFac
+        resdict['input_fitTeff'] = self.fitTeff
+        resdict['input_fitLogg'] = self.fitLogg
+        resdict['input_fitMh'] = self.fitMh
+        resdict['input_fitAlpha'] = self.fitAlpha
+        resdict['input_teffArray'] = self.teffs
+        resdict['input_loggArray'] = self.loggs
+        resdict['input_mhArray'] = self.mhs
+        resdict['input_alphaArray'] = self.alphas
+        resdict['input_nbWalkers'] = self.nwalkers
+        resdict['input_nbSteps'] = self.nsteps
+        resdict['input_nbCores'] = self.ncores
+        resdict['input_saveBackend'] = self.savebackend
+        resdict['input_pathToGrid'] = self.pathtogrid
+        resdict['input_pathToData'] = self.pathtodata
+        resdict['input_lineListFile'] = self.linelist
+        resdict['input_normFactorFile'] = self.normfacfile
+        resdict['input_adjCont'] = self.adjcont
+        resdict['input_guessRV'] = self.guessRV
+        resdict['input_resampleVel'] = self.resampleVel
+        resdict['input_errType'] = self.errType
+
+        ## Now create the output file
+        ostr=""
+        for key in resfile_keys:
+            _type, _var = key.split(':')
+            _evar = 'e_'+_var
+            if _type=='sep': ostr+='#'+''.join([_var for i in range(4*CH)])
+            elif _type=='flt': ## Float with associated uncertainty
+                ostr+=f'{_type} : {_var:>{CK}} : '
+                ostr+=f'{resdict[_var]:<{CH}.{RP}f} '
+                ostr+=f'{resdict[_evar]:<{CH}.{RP}f} '
+            elif _type=='str': ## String
+                ostr+=f'{_type} : {_var:>{CK}} : {resdict[_var]} '
+            elif _type=='cst': ## Float with *no* associated uncertainty
+                ostr+=f'{_type} : {_var:>{CK}} : {resdict[_var]:<{CH}.{RP}f} '
+            elif _type=='int': ## Int with *no* associated uncertainty
+                ostr+=f'{_type} : {_var:>{CK}} : {resdict[_var]:<{CH}} '
+            elif _type=='arr': ## Array of integets with *no* associated uncertainty
+                ostr+=f'{_type} : {_var:>{CK}} : '
+                for j in range(len(resdict[_var])):
+                    ostr+=f'{resdict[_var][j]:<{CH}.{RP}f} '
+            ostr+='\n'
+
+        with open(self.opath+'results.txt', 'w') as g:
+            g.write(ostr)
 
         print('ANALYSIS COMPLETE')
 

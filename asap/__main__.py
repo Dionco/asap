@@ -28,10 +28,13 @@ parser.add_argument("-m", "--mpi", type=bool, default=False)
 parser.add_argument("-p", "--profile", type=bool, default=False)
 parser.add_argument("-d", "--dynesty", type=bool, default=False)
 parser.add_argument("-u", "--run_ultranest", type=bool, default=False)
+parser.add_argument("--plotfit", action='store_true', default=False,
+                    help='Generate spectral fit plot of all fitted regions')
 
 args = parser.parse_args()
 # ncores = args.nbofcores
 dynesty = args.dynesty
+plotfit = args.plotfit
 if args.star is not None:
     star = args.star.strip()
     if star[-5:] == '.fits':
@@ -547,6 +550,7 @@ print("{0} CPUs AVAILABLE".format(ncpu))
 print("{0} CPUs USED".format(ncores))
 
 SA.sampler = sampler ## So that save_results can work
+SA.plotfit = plotfit ## Set plot trigger from CLI
 SA.save_results() ## Save the results and plots.
 
 if SA.return_warning_nanlikelidhood:
