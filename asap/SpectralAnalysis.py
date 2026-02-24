@@ -227,7 +227,7 @@ def read_res_v2(filename):
                 data[_var+'_err'] = float(_val_err) 
             elif _type=='arr':
                 _val_arr = _value.split()
-                data[_var] = [float(_val) for i in range(len(_val_arr))] 
+                data[_var] = [float(_val_arr[i]) for i in range(len(_val_arr))] 
     return data
 
 def readstr(instr):
@@ -392,7 +392,7 @@ class SpectralAnalysis:
             self.bs = np.arange(0, 12, 2)
         else:
             self.bs = np.array([0])
-        self.bfVals = np.array([]) ## initialize the bypass of magnetic values
+        self.magFields = np.array([]) ## initialize the bypass of magnetic values
         self.get_grid_dims()
         ## Default number of walkers and steps and ncores for MCMC
         self.nwalkers = 200
@@ -613,21 +613,39 @@ class SpectralAnalysis:
         rv          = float(config['MAIN']['rv'])
         fitFields   = config.getboolean('MAIN', 'fitFields')
         fillFactors = config['MAIN']['fillFactors']
-        try:
-            fieldsArr = config['MAIN']['fieldsArr'].split()
-            bs = np.arange(float(fieldsArr[0])/1000, float(fieldsArr[1])/1000, float(fieldsArr[2])/1000)
-            self.update_bs(bs)
-            print(f'self.bs updated to: {self.bs}')
-        except:
-            pass
+        ## PIC Old code to be removed
+        # try:
+        #     fieldsArr = config['MAIN']['fieldsArr'].split()
+        #     bs = np.arange(float(fieldsArr[0])/1000, float(fieldsArr[1])/1000, float(fieldsArr[2])/1000)
+        #     self.update_bs(bs)
+        #     print(f'self.bs updated to: {self.bs}')
+        # except:
+        #     pass
         try:
             logCoeffs   = config.getboolean('MAIN', 'logCoeffs')
         except:
             logCoeffs = self.logCoeffs
-        bfVals = self.bfVals
-        if fillFactors.lower().strip()=='none':
+        ##
+        magFields = None ## Initialize
+        try: ## Try to read magFieldse
+            magFields = config['MAIN']['magFields']
+            magFields = magFields.replace('[', '').replace(']', '')
+            magFields = magFields.replace(',', '')
+            magFields = magFields.split()
+            nbFields    = len(magFields)
+            magFields = [float(magFields[i]) for i in range(nbFields)]
+            magFields = np.array(magFields)
+        except:
+            pass
+        ## If the user provided magFields, this is what we take:
+        if magFields is not None: self.update_bs(magFields)
+        ## Now we can read the filling factors
+        ## TODO: check logic -> currently the code with treat none in
+        ## filling factors as the user wanting to run without magnetic fields.
+        if fillFactors.lower().strip()=='none': ## Non-magnetic case
             fillFactors = np.array([1.])
             fitFields = False ## Prevent the situation with no magnetic coeff and a fitFields
+            self.update_bs([0.])
         else:
             fillFactors = fillFactors.replace('[', '').replace(']', '')
             if ',' in fillFactors: fillFactors = fillFactors.split(',')
@@ -635,16 +653,6 @@ class SpectralAnalysis:
             nbFields    = len(fillFactors)
             fillFactors = [float(fillFactors[i]) for i in range(nbFields)]
             fillFactors = np.array(fillFactors)
-        try:
-            bfVals = config['MAIN']['bfVals']
-            bfVals = bfVals.replace('[', '').replace(']', '')
-            bfVals = bfVals.replace(',', '')
-            bfVals = bfVals.split()
-            nbFields    = len(bfVals)
-            bfVals = [float(bfVals[i]) for i in range(nbFields)]
-            bfVals = np.array(bfVals)
-        except:
-            pass
         fitMac      = config.getboolean('MAIN', 'fitMac')
         vmac        = float(config['MAIN']['vmac'])
         vmacMode    = config['MAIN']['vmacMode']
@@ -840,11 +848,12 @@ class SpectralAnalysis:
                 bs = bs[:nfields]
             self.update_bs(bs) ## Only one value of magnetic field == non-magnetic case
             self.update_fillFactors(fillFactors)
-        if len(bfVals)==0:
-            pass
-        else:
-            bs = bfVals
-            self.update_bs(bs)                
+        if magFields is not None:
+            if len(magFields)==0: ## backwards compatibility:
+                pass
+            else:
+                bs = magFields
+                self.update_bs(bs)
 
         self.set_fitrot(fitRot)
         self.set_vsini(vsini)
@@ -1497,9 +1506,16 @@ class SpectralAnalysis:
     def create_regions(self, region_file, med_wvl, med_spectrum, med_err, 
                        radvel):
         '''Function creates the regions for the observations.
+        KONWN ISSUES: This function will not check that the model is available
+        for the requested regions. If the user requests a region that contains
+        NaNs in the model or that is in a gap (missing portion of a spectral
+        domain), this will result in a spurious fit.
+        TODO: implement a check to remove regions requested by the user if
+        models are not available.
         Input:
         - region_file       :   Input file to create regions. Format must be
-                                compatible with line_tools.read_lines().'''
+                                compatible with line_tools.read_lines().
+                                '''
         # region_file = paths.irap_tools_data_path \
         #             + 'line_lists/newlist_01042022_noCa.txt'
         bounds, orders = line_tools.read_lines(region_file)
@@ -1617,7 +1633,6 @@ class SpectralAnalysis:
         if np.any(nanOrders):
             bounds = bounds[~nanOrders]
             orders = orders[~nanOrders]
-
 
         f = open(region_file)
         elwvls = []
@@ -4173,7 +4188,6 @@ class SpectralAnalysis:
             ###################################
             #### PLOT 1 - FULL CORNER PLOT ####
             ###################################
-            import corner
 
             cornerfont = 25
             CORNER_KWARGS = dict(
@@ -4715,7 +4729,7 @@ class SpectralAnalysis:
         ## number of all fit parameters (Teff+logg+mh...+filling factors) based
         ## on what the user is computing. This is the length of `mcmcs`
         nof = len(mcmcs)
-        bic = -2.0 * maxLnLikelihood + 2.0 * nof * np.log(nbPointsFitted)
+        bic = -2.0 * maxLnLikelihood + nof * np.log(nbPointsFitted)
 
         strcoeffs = [str(coeffs[i]) for i in range(len(coeffs))]
         strecoeffs = [str(ecoeffs[i]) for i in range(len(ecoeffs))]
@@ -4729,11 +4743,6 @@ class SpectralAnalysis:
         f.write("{} {} {} {}\n".format(resdict['e_teff'], resdict['e_logg'], resdict['e_mh'], resdict['e_alpha']))
         f.write("chi2 min: {:0.5f}\n".format(minchi2))
         f.write("chi2 min no field: {:0.5f}\n".format(minchi2exp))
-        f.write("BIC: {:0.5f}\n".format(bic))
-        f.write("max ln(L): {:0.5f}\n".format(maxLnLikelihood))
-        f.write("n_params: {}\n".format(p))
-        f.write("n_data: {}\n".format(nbPointsFitted))
-        f.write("bs: {}\n".format(' '.join([str(b) for b in self.bs])))
         f.close()
 
         ## See output.txt for a description of the lines
@@ -4833,7 +4842,7 @@ class SpectralAnalysis:
                         'str:input_lineListFile',
                         'str:input_normFactorFile',
                         'str:input_adjCont',
-                        'str:input_guessRV',
+                        # 'str:input_guessRV', ## computed during run
                         'str:input_resampleVel',
                         'str:input_errType',
                         'sep:#',
@@ -4920,7 +4929,7 @@ class SpectralAnalysis:
         resdict['input_lineListFile'] = self.linelist
         resdict['input_normFactorFile'] = self.normfacfile
         resdict['input_adjCont'] = self.adjcont
-        resdict['input_guessRV'] = self.guessRV
+        # resdict['input_guessRV'] = self.guessRV ## Value may have been updated
         resdict['input_resampleVel'] = self.resampleVel
         resdict['input_errType'] = self.errType
 

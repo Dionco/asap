@@ -4,8 +4,7 @@
 # Ignore temporary files
 *.tmp
 
-*.pyc
-*.nbc
+*.pycdr'
 
 # Ignore node_modules directory
 node_modules/
@@ -18,3 +17,7 @@ build/
 asap/__pycache__/
 scripts/
 testing/
+asap/c_tools/
+
+# any folder namen __pychache__ and its content
+__pycache__/
