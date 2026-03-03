@@ -114,20 +114,21 @@ SA.read_config(config_file_copy)
 
 ## Override magFields and/or fillFactors from CLI if provided
 if args.magfields is not None or args.fillfactors is not None:
-    import numpy as _np
-    import configparser as _configparser
+    import configparser as configparser
     ## Temporarily make config copy writable to record CLI overrides
     os.chmod(config_file_copy, 0o644)
-    _cfg = _configparser.ConfigParser()
+    _cfg = configparser.ConfigParser()
     _cfg.read(config_file_copy)
     if args.magfields is not None:
-        SA.update_bs(_np.array(args.magfields))
+        SA.update_bs(np.array(args.magfields))
         _cfg['MAIN']['magFields'] = ' '.join(str(v) for v in args.magfields)
         print(f'CLI override: magFields set to {args.magfields}')
     if args.fillfactors is not None:
-        SA.update_fillFactors(_np.array(args.fillfactors))
+        SA.update_fillFactors(np.array(args.fillfactors))
         _cfg['MAIN']['fillFactors'] = ' '.join(str(v) for v in args.fillfactors)
         print(f'CLI override: fillFactors set to {args.fillfactors}')
+    ## Rebuild PARAMS_FIT now that bs and coeffs are final
+    SA.init_PARAMS()
     with open(config_file_copy, 'w') as _f:
         _cfg.write(_f)
     os.chmod(config_file_copy, 0o444)  ## Restore read-only
