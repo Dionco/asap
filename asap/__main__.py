@@ -30,7 +30,7 @@ parser.add_argument("-d", "--dynesty", type=bool, default=False)
 parser.add_argument("-u", "--run_ultranest", type=bool, default=False)
 parser.add_argument("--plotfit", action='store_true', default=False,
                     help='Generate spectral fit plot of all fitted regions')
-parser.add_argument("--magfields", nargs='+', type=int, default=None,
+parser.add_argument("--magfields", nargs='+', type=float, default=None,
                     help='Override magFields from config (space-separated kG values, e.g. --magfields 0 2 4)')
 parser.add_argument("--fillfactors", nargs='+', type=float, default=None,
                     help='Override fillFactors from config (space-separated values summing to 1, e.g. --fillfactors 0.5 0.3 0.2)')
