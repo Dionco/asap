@@ -4436,10 +4436,10 @@ class SpectralAnalysis:
                         ax.set_ylabel(_labels[i])
                         ax.yaxis.set_label_coords(-0.1, 0.5)
                     axes[-1].set_xlabel("step number");
-                plt.savefig(self.opath+'samples.pdf')
+                plt.savefig(self.opath+'samples.png', dpi=100)
                 # plt.show()
                 plt.close()
-                data['gen_files'].append('samples.pdf')
+                data['gen_files'].append('samples.png')
 
             ## With burning
             if plottrig:
@@ -4460,10 +4460,10 @@ class SpectralAnalysis:
                         ax.set_ylabel(_labels[i])
                         ax.yaxis.set_label_coords(-0.1, 0.5)
                     axes[-1].set_xlabel("step number");
-                plt.savefig(self.opath+'samples_postburn.pdf')
+                plt.savefig(self.opath+'samples_postburn.png', dpi=100)
                 # plt.show()
                 plt.close()
-                data['gen_files'].append('samples_postburn.pdf')
+                data['gen_files'].append('samples_postburn.png')
 
             resdict = self.get_PARAMS(mcmcs, emcmcs)
 
@@ -5316,10 +5316,10 @@ class SpectralAnalysis:
                         ax.set_ylabel(_labels[i])
                         ax.yaxis.set_label_coords(-0.1, 0.5)
                     axes[-1].set_xlabel("step number");
-                plt.savefig(self.opath+'samples.pdf')
+                plt.savefig(self.opath+'samples.png', dpi=100)
                 # plt.show()
                 plt.close()
-                data['gen_files'].append('samples.pdf')
+                data['gen_files'].append('samples.png')
 
             ## With burning
             if plottrig:
@@ -5340,10 +5340,10 @@ class SpectralAnalysis:
                         ax.set_ylabel(_labels[i])
                         ax.yaxis.set_label_coords(-0.1, 0.5)
                     axes[-1].set_xlabel("step number");
-                plt.savefig(self.opath+'samples_postburn.pdf')
+                plt.savefig(self.opath+'samples_postburn.png', dpi=100)
                 # plt.show()
                 plt.close()
-                data['gen_files'].append('samples_postburn.pdf')
+                data['gen_files'].append('samples_postburn.png')
 
             resdict = self.get_PARAMS(mcmcs, emcmcs)
 

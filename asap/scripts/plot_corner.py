@@ -529,10 +529,10 @@ def main():
                 ax.set_ylabel(_labels[i])
                 ax.yaxis.set_label_coords(-0.1, 0.5)
             axes[-1].set_xlabel("step number");
-        plt.savefig(opath+'samples_2.pdf')
+        plt.savefig(opath+'samples_2.png', dpi=100)
         # plt.show()
         plt.close()
-        data['gen_files'].append('samples_2.pdf')
+        data['gen_files'].append('samples_2.png')
 
     ## With burning
     if plottrig:
@@ -553,10 +553,10 @@ def main():
                 ax.set_ylabel(_labels[i])
                 ax.yaxis.set_label_coords(-0.1, 0.5)
             axes[-1].set_xlabel("step number");
-        plt.savefig(opath+'samples_postburn_2.pdf')
+        plt.savefig(opath+'samples_postburn_2.png', dpi=100)
         # plt.show()
         plt.close()
-        data['gen_files'].append('samples_postburn_2.pdf')
+        data['gen_files'].append('samples_postburn_2.png')
 
     resdict = SA.get_PARAMS(mcmcs, emcmcs)
 
