@@ -692,9 +692,18 @@ if sampler_type == "ultranest":
         nlive, dlogz, SA.ultranest_min_ess, SA.ultranest_resume, SA.ultranest_vectorized))
     print(f"  UltraNest logs: {ultranest_logdir}")
 
+    # Create either vectorized or non-vectorized versions of the likelihood and prior
+    # functions, depending on the user's choice.
+    if SA.ultranest_vectorized:
+        lnprob_fn = lnprob_vectorized
+        priot_transform_fn = prior_transform_vectorized
+    else:
+        lnprob_fn = lnprob
+        priot_transform_fn = prior_transform
+
     resume_policy = SA.ultranest_resume
     sampler = ultranest.ReactiveNestedSampler(
-        labels, lnprob_vectorized, prior_transform_vectorized,
+        labels, lnprob_fn, priot_transform_fn,
         log_dir=ultranest_logdir,
         resume=resume_policy,
         vectorized=SA.ultranest_vectorized,
