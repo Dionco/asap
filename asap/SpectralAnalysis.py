@@ -2819,7 +2819,7 @@ class SpectralAnalysis:
 
         vsini = 0. ## Vsini already accounted for
         
-        # args = [0, nwvls_shift, disk_integrated_spectrum0, obs_wvl, obs_flux, obs_err, 
+        # args = [0, nwvls_shift, disk_integrated_spectrum, obs_wvl, obs_flux, obs_err, 
         #         nan_mask, totvb, vmac, vsini,
         #         0, 0, 0, '0', self.adjcont, 'line']
         # ## fit is the model after broadening and adjustment
