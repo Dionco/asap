@@ -934,6 +934,17 @@ class SpectralAnalysis:
         #
         self.set_instrument(instrument)
         #
+        ## When the magnetic-field grid has only one bin (e.g. magfields = 0),
+        ## fitFields=True is operationally identical to fitFields=False: the
+        ## sampler fits zero filling-factor DOF (prior_transform's range is
+        ## nbOfFields-1 = 0). Coerce here so save_results / init_PARAMS go down
+        ## the no-magnetic-field path and don't synthesize a constant a_0
+        ## column that crashes corner.corner with "no dynamic range".
+        if self.fitFields and len(self.bs) == 1:
+            print('Note: fitFields requested but only one magnetic bin '
+                  f'({list(self.bs)}); coercing fitFields=False.')
+            self.set_fitFields(False)
+        #
         self.init_PARAMS() ## Creates a list of keys and default values
 
     def init_PARAMS(self):
@@ -4124,7 +4135,7 @@ class SpectralAnalysis:
             log_prob_walkers_noflat = log_prob_walkers_noflat_0[data['burning']:]
 
             #### Compute the number of fields in the fit
-            nbOfFields = len(self.bs) ## This is the number of fields in our model NOT WHAT WE FIT 
+            nbOfFields = len(self.bs) ## This is the number of fields in our model NOT WHAT WE FIT
             
             #### Flatten the samples
             ishape = np.shape(samples_noflat)
@@ -4162,7 +4173,7 @@ class SpectralAnalysis:
                 ## If we are fitting fields, we are fitting nbOfFields-1 filling factors
                 subssamples = ssamples.T[:nbOfFields-1]
                 meanfield = np.sum(subssamples.T * data['bs'][1:], axis=1) ## only from magnetic coefficients
-            
+
             ## Compute the first coeff and put it in place
             if self.fitFields:
                 subssamples = (ssamples.T)[:nbOfFields-1]
@@ -4211,39 +4222,43 @@ class SpectralAnalysis:
             plottrig = True
             if plottrig:
                 print("-> Generating full corner plot")
-                fig = corner.corner(nssamples, **CORNER_KWARGS)
+                try:
+                    fig = corner.corner(nssamples, **CORNER_KWARGS)
 
-                ## Now we want to remove the equal sign from titles
-                for i in range(len(fig.axes)):
-                    fig.axes[i].set_title(fig.axes[i].title.get_text().replace("=", ''))
+                    ## Now we want to remove the equal sign from titles
+                    for i in range(len(fig.axes)):
+                        fig.axes[i].set_title(fig.axes[i].title.get_text().replace("=", ''))
 
-                ## Make the subplot smaller?
-                # fig.subplots_adjust(right=1.5,top=1.5)
+                    ## Make the subplot smaller?
+                    # fig.subplots_adjust(right=1.5,top=1.5)
 
-                ## Make the ticks bigger
-                for ax in fig.get_axes():
-                    ax.tick_params(axis='both', labelsize=cornerfont-5)
-                    ax.title.set_fontsize("{}".format(cornerfont))
+                    ## Make the ticks bigger
+                    for ax in fig.get_axes():
+                        ax.tick_params(axis='both', labelsize=cornerfont-5)
+                        ax.title.set_fontsize("{}".format(cornerfont))
 
-                max50 = nssamples[idx50]
-                max = np.mean(max50, axis=0)
+                    max50 = nssamples[idx50]
+                    max = np.mean(max50, axis=0)
 
-                # Extract the axes
-                _ndim = data['ndim']
-                axes = np.array(fig.axes).reshape((_ndim, _ndim))
-                for i in range(_ndim):
-                    for j in range(i):
-                        ax = axes[i, j]
-                        ax.axhline(max[i], color='red')
-                        ax.axvline(max[j], color='red')
+                    # Extract the axes
+                    _ndim = data['ndim']
+                    axes = np.array(fig.axes).reshape((_ndim, _ndim))
+                    for i in range(_ndim):
+                        for j in range(i):
+                            ax = axes[i, j]
+                            ax.axhline(max[i], color='red')
+                            ax.axvline(max[j], color='red')
 
-                for i in range(_ndim):
-                    ax = axes[i, i]
-                    ax.axvline(max[i], color='red')
+                    for i in range(_ndim):
+                        ax = axes[i, i]
+                        ax.axvline(max[i], color='red')
 
-                plt.savefig(self.opath+'corner.pdf', bbox_inches='tight')
-                plt.close()
-                data['gen_files'].append('corner.pdf')
+                    plt.savefig(self.opath+'corner.pdf', bbox_inches='tight')
+                    plt.close()
+                    data['gen_files'].append('corner.pdf')
+                except Exception as e:
+                    print(f"Warning: full corner plot skipped ({e})")
+                    plt.close('all')
 
 
             ################################
@@ -4251,10 +4266,9 @@ class SpectralAnalysis:
             ################################
 
 
-            if plottrig:
+            if plottrig and self.fitFields:
                 print("-> Generating <B> histogram")
-                ## Now plot the B field only
-                if self.fitFields:
+                try:
                     _ndim = 1
                     _labels = ['<B> (kG)']
                     CORNER_KWARGS = dict(
@@ -4320,6 +4334,9 @@ class SpectralAnalysis:
                     plt.savefig(self.opath+'b_histogram.pdf')
                     plt.close()
                     data['gen_files'].append('b_histogram.pdf')
+                except Exception as e:
+                    print(f"Warning: <B> histogram skipped ({e})")
+                    plt.close('all')
 
 
             ############################
@@ -4327,10 +4344,10 @@ class SpectralAnalysis:
             ############################
 
 
-            if plottrig:
+            if plottrig and self.fitFields:
                 print("-> Generating the a0 vs <B> plot")
                 ## Now plot the B field and non mag component
-                if self.fitFields:
+                try:
                     _labels = ['<B> (kG)', r"$a_0$"]
                     _ndim = len(_labels)
                     CORNER_KWARGS = dict(
@@ -4399,6 +4416,9 @@ class SpectralAnalysis:
                     plt.savefig(self.opath+'a0_b.pdf')
                     plt.close()
                     data['gen_files'].append('a0_b.pdf')
+                except Exception as e:
+                    print(f"Warning: a0 vs <B> plot skipped ({e})")
+                    plt.close('all')
 
 
             #### Here we save the values of the results to be stored
@@ -4510,7 +4530,7 @@ class SpectralAnalysis:
             else: ## No magnetic field fitted
                 coeffs = np.zeros(nbOfFields)
                 coeffs[0] = 1.
-                ecoeffs = np.zeros(nbOfFields) 
+                ecoeffs = np.zeros(nbOfFields)
             ##
             meanfield = np.array(maxproba_meanfield); emeanfield = np.array(emaxproba_meanfield)
             # Compute the average magnetic field
@@ -4521,12 +4541,11 @@ class SpectralAnalysis:
             #### PLOT 3 - a0 -- <B> ####
             ############################
 
-            if plottrig:
+            if plottrig and self.fitFields:
 
                 plt.close('all')
 
-                if self.fitFields:
-
+                try:
                     params= {'xtick.labelsize': 18,'ytick.labelsize': 18,'axes.labelsize': 20, 'legend.fontsize': 16,   'text.usetex': self.latex,'figure.figsize' : (6.4, 4.8)}
                     plt.rcParams.update(params)
 
@@ -4542,6 +4561,9 @@ class SpectralAnalysis:
                     plt.savefig(self.opath+'b_distrib.pdf')
                     plt.close()
                     data['gen_files'].append('b_distrib.pdf')
+                except Exception as e:
+                    print(f"Warning: b_distrib plot skipped ({e})")
+                    plt.close('all')
 
 
             ##########################
@@ -4561,51 +4583,59 @@ class SpectralAnalysis:
             ## Without burning
             if plottrig:
                 print("-> Generating samples plots")
-                fig, axes = plt.subplots(_ndim, figsize=(6.4, figheightfac*4.8), sharex=True)
-                if _ndim == 1:
-                    i = 0
-                    ax = axes
-                    ax.plot(samples_noflat_0[:, :, i], "k", alpha=0.3)
-                    ax.set_xlim(0, len(samples_noflat_0))
-                    ax.set_ylabel(_labels[i])
-                    ax.yaxis.set_label_coords(-0.1, 0.5)
-                    ax.set_xlabel("step number");
-                else:
-                    for i in range(_ndim):
-                        ax = axes[i]
+                try:
+                    fig, axes = plt.subplots(_ndim, figsize=(6.4, figheightfac*4.8), sharex=True)
+                    if _ndim == 1:
+                        i = 0
+                        ax = axes
                         ax.plot(samples_noflat_0[:, :, i], "k", alpha=0.3)
                         ax.set_xlim(0, len(samples_noflat_0))
                         ax.set_ylabel(_labels[i])
                         ax.yaxis.set_label_coords(-0.1, 0.5)
-                    axes[-1].set_xlabel("step number");
-                plt.savefig(self.opath+'samples.pdf')
-                # plt.show()
-                plt.close()
-                data['gen_files'].append('samples.pdf')
+                        ax.set_xlabel("step number");
+                    else:
+                        for i in range(_ndim):
+                            ax = axes[i]
+                            ax.plot(samples_noflat_0[:, :, i], "k", alpha=0.3)
+                            ax.set_xlim(0, len(samples_noflat_0))
+                            ax.set_ylabel(_labels[i])
+                            ax.yaxis.set_label_coords(-0.1, 0.5)
+                        axes[-1].set_xlabel("step number");
+                    plt.savefig(self.opath+'samples.pdf')
+                    # plt.show()
+                    plt.close()
+                    data['gen_files'].append('samples.pdf')
+                except Exception as e:
+                    print(f"Warning: samples plot skipped ({e})")
+                    plt.close('all')
 
             ## With burning
             if plottrig:
-                fig, axes = plt.subplots(_ndim, figsize=(6.4, figheightfac*4.8), sharex=True)
-                if _ndim == 1:
-                    i = 0
-                    ax = axes
-                    ax.plot(samples_noflat[:, :, i], "k", alpha=0.3)
-                    ax.set_xlim(0, len(samples_noflat[:]))
-                    ax.set_ylabel(_labels[i])
-                    ax.yaxis.set_label_coords(-0.1, 0.5)
-                    ax.set_xlabel("step number");
-                else:
-                    for i in range(_ndim):
-                        ax = axes[i]
+                try:
+                    fig, axes = plt.subplots(_ndim, figsize=(6.4, figheightfac*4.8), sharex=True)
+                    if _ndim == 1:
+                        i = 0
+                        ax = axes
                         ax.plot(samples_noflat[:, :, i], "k", alpha=0.3)
                         ax.set_xlim(0, len(samples_noflat[:]))
                         ax.set_ylabel(_labels[i])
                         ax.yaxis.set_label_coords(-0.1, 0.5)
-                    axes[-1].set_xlabel("step number");
-                plt.savefig(self.opath+'samples_postburn.pdf')
-                # plt.show()
-                plt.close()
-                data['gen_files'].append('samples_postburn.pdf')
+                        ax.set_xlabel("step number");
+                    else:
+                        for i in range(_ndim):
+                            ax = axes[i]
+                            ax.plot(samples_noflat[:, :, i], "k", alpha=0.3)
+                            ax.set_xlim(0, len(samples_noflat[:]))
+                            ax.set_ylabel(_labels[i])
+                            ax.yaxis.set_label_coords(-0.1, 0.5)
+                        axes[-1].set_xlabel("step number");
+                    plt.savefig(self.opath+'samples_postburn.pdf')
+                    # plt.show()
+                    plt.close()
+                    data['gen_files'].append('samples_postburn.pdf')
+                except Exception as e:
+                    print(f"Warning: samples_postburn plot skipped ({e})")
+                    plt.close('all')
 
             resdict = self.get_PARAMS(mcmcs, emcmcs)
 

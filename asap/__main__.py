@@ -135,6 +135,13 @@ if args.magfields is not None or args.fillfactors is not None:
         SA.update_fillFactors(np.array(args.fillfactors))
         _cfg['MAIN']['fillFactors'] = ' '.join(str(v) for v in args.fillfactors)
         print(f'CLI override: fillFactors set to {args.fillfactors}')
+    ## Mirror SpectralAnalysis.read_config: coerce fitFields=False when the
+    ## CLI override leaves a single magnetic bin, so save_results doesn't
+    ## synthesize a constant a_0 column that crashes corner.corner.
+    if SA.fitFields and len(SA.bs) == 1:
+        print(f'Note: only one magnetic bin after CLI override ({list(SA.bs)}); '
+              'coercing fitFields=False.')
+        SA.set_fitFields(False)
     ## Rebuild PARAMS_FIT now that bs and coeffs are final
     SA.init_PARAMS()
     with open(config_file_copy, 'w') as _f:
